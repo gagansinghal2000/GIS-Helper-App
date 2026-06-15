@@ -1,0 +1,1 @@
+pip install streamlit geopandas shapely fiona pyproj

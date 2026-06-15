@@ -1,0 +1,5 @@
+@echo off
+
+cd C:\GIS_Helper_App
+
+streamlit run gis_tool.py --server.enableCORS false > gis_helper.log 2>&1
