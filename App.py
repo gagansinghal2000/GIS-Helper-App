@@ -131,7 +131,7 @@ def buffer_shapefile(shapefile_zip, distance, keep_proj=False):
 # =========================
 # Streamlit UI
 # =========================
-st.set_page_config(page_title="GIS Helper App", layout="centered")
+st.set_page_config(page_title="GIS Toolkit", layout="centered")
 
 # Hidden admin link for users with ?admin=1
 query_params = st.query_params
@@ -159,7 +159,7 @@ if is_admin_mode:
         st.info("Enter admin password to view dashboard.")
 
 else:
-    st.markdown("<h1 style='text-align:center;'>GIS Helper App</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align:center;'>GIS Toolkit</h1>", unsafe_allow_html=True)
     st.markdown("<h3 style='text-align:center; color:grey;'>Simple GIS tasks, one click away!</h3>", unsafe_allow_html=True)
 
     # Subtle Non-UK checkbox
