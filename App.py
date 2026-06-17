@@ -3,28 +3,43 @@ import geopandas as gpd
 import tempfile
 import os
 import zipfile
-import csv
 from datetime import datetime
 from shapely.geometry import Polygon
+import gspread
+from google.oauth2.service_account import Credentials
 
 # =========================
-# Logging Function
+# Google Sheets Logging
 # =========================
-LOG_FILE = "usage_log.csv"
+SHEET_NAME = "GIS Toolkit Logs"  # must match the Google Sheet's name exactly
+
+@st.cache_resource
+def get_worksheet():
+    """Authenticate and return the worksheet object (cached across reruns)."""
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"], scopes=scopes
+    )
+    client = gspread.authorize(creds)
+    sheet = client.open(SHEET_NAME).sheet1
+    return sheet
 
 def log_usage(operation, filename, extra_info=""):
-    """Append a usage entry to the CSV log file."""
-    log_exists = os.path.exists(LOG_FILE)
-    with open(LOG_FILE, "a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        if not log_exists:
-            writer.writerow(["Timestamp", "Operation", "Filename", "Details"])
-        writer.writerow([
+    """Append a usage entry as a new row in the Google Sheet."""
+    try:
+        sheet = get_worksheet()
+        sheet.append_row([
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             operation,
             filename,
             extra_info
         ])
+    except Exception as e:
+        # Don't let logging failures break the actual app functionality
+        st.warning(f"Logging failed (app still works fine): {e}")
 
 # =========================
 # Utility: Find Shapefile
@@ -134,25 +149,32 @@ def buffer_shapefile(shapefile_zip, distance, keep_proj=False):
 st.set_page_config(page_title="GIS Toolkit", layout="centered")
 
 # Hidden admin link for users with ?admin=1
-query_params = st.query_params
-is_admin_mode = query_params.get("admin", ["0"])[0] == "1"
+is_admin_mode = st.query_params.get("admin", "0") == "1"
 
-ADMIN_PASSWORD = "Gagan321"
+ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 
 if is_admin_mode:
     pwd = st.text_input("Enter Admin Password", type="password")
     if pwd == ADMIN_PASSWORD:
         st.success("Access granted")
         st.markdown("## Admin Dashboard")
-        if os.path.exists(LOG_FILE):
-            import pandas as pd
-            df = pd.read_csv(LOG_FILE)
-            st.markdown(f"**Total records:** {len(df)}")
-            st.dataframe(df)
-            st.download_button("Download logs (CSV)", df.to_csv(index=False).encode("utf-8"), "usage_log.csv")
+        try:
+            sheet = get_worksheet()
+            records = sheet.get_all_records()
+            if records:
+                import pandas as pd
+                df = pd.DataFrame(records)
+                st.markdown(f"**Total records:** {len(df)}")
+                st.dataframe(df)
+                st.download_button("Download logs (CSV)", df.to_csv(index=False).encode("utf-8"), "usage_log.csv")
+            else:
+                st.info("No usage logs yet.")
             if st.button("Clear all logs"):
-                open(LOG_FILE, 'w').close()
+                sheet.clear()
+                sheet.append_row(["Timestamp", "Operation", "Filename", "Details"])
                 st.success("Logs cleared. Refresh the page.")
+        except Exception as e:
+            st.error(f"Could not load logs: {e}")
     else:
         if pwd:
             st.error("Incorrect password")
