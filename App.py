@@ -1,12 +1,14 @@
 import streamlit as st
-import geopandas as gpd
 import tempfile
 import os
 import zipfile
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from shapely.geometry import Polygon
 import gspread
 from google.oauth2.service_account import Credentials
+import geopandas as gpd
+gpd.options.io_engine = "pyogrio"
 
 # =========================
 # Google Sheets Logging
@@ -32,7 +34,7 @@ def log_usage(operation, filename, extra_info=""):
     try:
         sheet = get_worksheet()
         sheet.append_row([
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S"),
             operation,
             filename,
             extra_info
