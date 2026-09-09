@@ -1,9 +1,8 @@
 streamlit
-geopandas==1.0.1
-shapely==2.0.6
-pyogrio==0.10.0
-pyproj==3.7.1
+geopandas
+shapely
+pyogrio
+pyproj
 pandas
-fiona
 gspread
 google-auth
