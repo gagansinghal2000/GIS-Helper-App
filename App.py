@@ -40,7 +40,6 @@ def log_usage(operation, filename, extra_info=""):
             extra_info
         ])
     except Exception as e:
-        # Don't let logging failures break the actual app functionality
         st.warning(f"Logging failed (app still works fine): {e}")
 
 # =========================
@@ -54,13 +53,23 @@ def find_shapefile(directory):
     return None
 
 # =========================
-# Function: KML/KMZ → Shapefile
+# Projection Options
+# =========================
+PROJECTIONS = {
+    "British National Grid (EPSG:27700) — UK standard": 27700,
+    "WGS84 / GPS (EPSG:4326) — Universal / GPS": 4326,
+    "Web Mercator (EPSG:3857) — Google Maps / Web platforms": 3857,
+    "Irish Transverse Mercator (EPSG:2157) — Ireland": 2157,
+    "UTM Zone 30N (EPSG:32630) — UK / West Europe international": 32630,
+}
+
+# =========================
+# Function: KML/KMZ to Shapefile
 # =========================
 def kml_to_shapefile(kml_file, keep_proj=False):
     input_name = os.path.splitext(os.path.basename(kml_file.name))[0]
     temp_dir = tempfile.mkdtemp()
 
-    # Handle KMZ
     if kml_file.name.lower().endswith('.kmz'):
         kmz_path = os.path.join(temp_dir, f"{input_name}.kmz")
         with open(kmz_path, "wb") as f:
@@ -72,23 +81,18 @@ def kml_to_shapefile(kml_file, keep_proj=False):
             raise Exception("No KML file found inside the KMZ.")
         kml_path = os.path.join(temp_dir, kml_files[0])
     else:
-        # Handle KML
         kml_path = os.path.join(temp_dir, f"{input_name}.kml")
         with open(kml_path, "wb") as f:
             f.write(kml_file.read())
 
-    # Read KML
     gdf = gpd.read_file(kml_path, driver='KML')
 
-    # Reproject if needed
     if not keep_proj:
-        gdf = gdf.to_crs(epsg=27700)  # BNG
+        gdf = gdf.to_crs(epsg=27700)
 
-    # Save as shapefile
     shapefile_path = os.path.join(temp_dir, f"{input_name}.shp")
     gdf.to_file(shapefile_path)
 
-    # Zip shapefile
     zip_path = os.path.join(temp_dir, f"{input_name}_shapefile.zip")
     with zipfile.ZipFile(zip_path, 'w') as zf:
         for ext in ['.shp', '.shx', '.dbf', '.prj', '.cpg']:
@@ -98,7 +102,7 @@ def kml_to_shapefile(kml_file, keep_proj=False):
     return zip_path
 
 # =========================
-# Function: Shapefile → KML
+# Function: Shapefile to KML
 # =========================
 def shapefile_to_kml(shapefile_zip, keep_proj=False):
     temp_dir = tempfile.mkdtemp()
@@ -110,7 +114,7 @@ def shapefile_to_kml(shapefile_zip, keep_proj=False):
     gdf = gpd.read_file(shp_path)
 
     if not keep_proj:
-        gdf = gdf.to_crs(epsg=4326)  # WGS84
+        gdf = gdf.to_crs(epsg=4326)
 
     input_name = os.path.splitext(os.path.basename(shp_path))[0]
     kml_path = os.path.join(temp_dir, f"{input_name}.kml")
@@ -130,7 +134,7 @@ def buffer_shapefile(shapefile_zip, distance, keep_proj=False):
     gdf = gpd.read_file(shp_path)
 
     if not keep_proj:
-        gdf = gdf.to_crs(epsg=27700)  # BNG
+        gdf = gdf.to_crs(epsg=27700)
 
     gdf['geometry'] = gdf.buffer(distance)
     input_name = os.path.splitext(os.path.basename(shp_path))[0]
@@ -146,13 +150,85 @@ def buffer_shapefile(shapefile_zip, distance, keep_proj=False):
     return zip_path
 
 # =========================
+# Function: Reproject File
+# =========================
+def reproject_file(uploaded_file, target_epsg, output_format):
+    input_name = os.path.splitext(os.path.basename(uploaded_file.name))[0]
+    temp_dir = tempfile.mkdtemp()
+    file_ext = uploaded_file.name.lower().split('.')[-1]
+
+    if file_ext == 'zip':
+        zip_path = os.path.join(temp_dir, f"{input_name}.zip")
+        with open(zip_path, "wb") as f:
+            f.write(uploaded_file.read())
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            zf.extractall(temp_dir)
+        shp_path = find_shapefile(temp_dir)
+        if shp_path is None:
+            raise Exception("No shapefile found in the uploaded ZIP.")
+        gdf = gpd.read_file(shp_path)
+
+    elif file_ext == 'kmz':
+        kmz_path = os.path.join(temp_dir, f"{input_name}.kmz")
+        with open(kmz_path, "wb") as f:
+            f.write(uploaded_file.read())
+        with zipfile.ZipFile(kmz_path, 'r') as zf:
+            zf.extractall(temp_dir)
+        kml_files = [f for f in os.listdir(temp_dir) if f.endswith('.kml')]
+        if not kml_files:
+            raise Exception("No KML file found inside the KMZ.")
+        gdf = gpd.read_file(os.path.join(temp_dir, kml_files[0]), driver='KML')
+
+    elif file_ext == 'kml':
+        kml_path = os.path.join(temp_dir, f"{input_name}.kml")
+        with open(kml_path, "wb") as f:
+            f.write(uploaded_file.read())
+        gdf = gpd.read_file(kml_path, driver='KML')
+
+    else:
+        raise Exception(f"Unsupported file type: {file_ext}")
+
+    input_crs = gdf.crs
+    st.info(f"Detected input projection: **{input_crs.name}** (EPSG:{input_crs.to_epsg()})")
+
+    gdf = gdf.to_crs(epsg=target_epsg)
+
+    if output_format == "Shapefile (ZIP)":
+        out_shp = os.path.join(temp_dir, f"{input_name}_reprojected.shp")
+        gdf.to_file(out_shp)
+        zip_path = os.path.join(temp_dir, f"{input_name}_reprojected.zip")
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            for ext in ['.shp', '.shx', '.dbf', '.prj', '.cpg']:
+                fp = out_shp.replace('.shp', ext)
+                if os.path.exists(fp):
+                    zf.write(fp, os.path.basename(fp))
+        return zip_path, f"{input_name}_reprojected.zip"
+
+    elif output_format == "KML":
+        if target_epsg != 4326:
+            gdf = gdf.to_crs(epsg=4326)
+            st.warning("KML format requires WGS84 (EPSG:4326) — output has been reprojected to WGS84 automatically.")
+        out_kml = os.path.join(temp_dir, f"{input_name}_reprojected.kml")
+        gdf.to_file(out_kml, driver='KML')
+        return out_kml, f"{input_name}_reprojected.kml"
+
+    elif output_format == "KMZ":
+        if target_epsg != 4326:
+            gdf = gdf.to_crs(epsg=4326)
+            st.warning("KMZ format requires WGS84 (EPSG:4326) — output has been reprojected to WGS84 automatically.")
+        out_kml = os.path.join(temp_dir, f"{input_name}_reprojected.kml")
+        gdf.to_file(out_kml, driver='KML')
+        out_kmz = os.path.join(temp_dir, f"{input_name}_reprojected.kmz")
+        with zipfile.ZipFile(out_kmz, 'w') as zf:
+            zf.write(out_kml, os.path.basename(out_kml))
+        return out_kmz, f"{input_name}_reprojected.kmz"
+
+# =========================
 # Streamlit UI
 # =========================
 st.set_page_config(page_title="GIS Toolkit", layout="centered")
 
-# Hidden admin link for users with ?admin=1
 is_admin_mode = st.query_params.get("admin", "0") == "1"
-
 ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 
 if is_admin_mode:
@@ -166,6 +242,7 @@ if is_admin_mode:
             if records:
                 import pandas as pd
                 df = pd.DataFrame(records)
+                df.index = df.index + 1
                 st.markdown(f"**Total records:** {len(df)}")
                 st.dataframe(df)
                 st.download_button("Download logs (CSV)", df.to_csv(index=False).encode("utf-8"), "usage_log.csv")
@@ -186,11 +263,15 @@ else:
     st.markdown("<h1 style='text-align:center;'>GIS Toolkit</h1>", unsafe_allow_html=True)
     st.markdown("<h3 style='text-align:center; color:grey;'>Simple GIS tasks, one click away!</h3>", unsafe_allow_html=True)
 
-    # Subtle Non-UK checkbox
     st.markdown("<span style='font-size:small; color:grey;'>Check for Non-UK files to keep original projection</span>", unsafe_allow_html=True)
     non_uk = st.checkbox("Non-UK file")
 
-    operation = st.radio("Choose operation:", ["KML/KMZ → Shapefile", "Shapefile → KML", "Buffer Shapefile"])
+    operation = st.radio("Choose operation:", [
+        "KML/KMZ → Shapefile",
+        "Shapefile → KML",
+        "Buffer Shapefile",
+        "Reproject File"
+    ])
 
     if operation == "KML/KMZ → Shapefile":
         kml_file = st.file_uploader("Upload KML or KMZ file", type=['kml', 'kmz'])
@@ -223,6 +304,23 @@ else:
                 log_usage("Buffer Shapefile", shapefile_zip.name, f"Distance: {distance} m")
                 with open(output, "rb") as f:
                     st.download_button("Download Buffered Shapefile (ZIP)", f, file_name=os.path.basename(output))
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+    elif operation == "Reproject File":
+        st.markdown("<span style='font-size:small; color:grey;'>The Non-UK checkbox above is ignored for this tool — choose the target projection directly below.</span>", unsafe_allow_html=True)
+
+        uploaded_file = st.file_uploader("Upload file to reproject", type=['zip', 'kml', 'kmz'])
+        target_proj_label = st.selectbox("Reproject to:", list(PROJECTIONS.keys()))
+        target_epsg = PROJECTIONS[target_proj_label]
+        output_format = st.selectbox("Output format:", ["Shapefile (ZIP)", "KML", "KMZ"])
+
+        if uploaded_file and st.button("Reproject"):
+            try:
+                output_path, output_filename = reproject_file(uploaded_file, target_epsg, output_format)
+                log_usage("Reproject File", uploaded_file.name, f"to EPSG:{target_epsg} as {output_format}")
+                with open(output_path, "rb") as f:
+                    st.download_button(f"Download {output_format}", f, file_name=output_filename)
             except Exception as e:
                 st.error(f"Error: {e}")
 
