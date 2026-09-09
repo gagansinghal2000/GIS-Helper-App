@@ -1,5 +1,5 @@
 streamlit
-geopandas
+geopandas==1.0.1
 shapely
 pandas
 fiona
