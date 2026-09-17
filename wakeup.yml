@@ -3,7 +3,8 @@ name: Streamlit Wakeup
 on:
   schedule:
     # Runs at 1:30 AM UTC = 7:00 AM IST
-    - cron: '30 1 * * *'
+    #- cron: '30 1 * * *' Original Cron. Cron below is adjusted to run at 1:00 AM IST due to delays in running of Github scheduled tasks.
+    - cron: '30 19 * * *'
   workflow_dispatch:  # lets you manually trigger it from the Actions tab to test
 
 jobs:
